@@ -1,6 +1,6 @@
 const express = require("express");
 const userController = require("../controller/UserController");
-const { authenticateUser } = require('../middleware/AuthMiddleware');
+const { authenticateUser, authorizeRole } = require('../middleware/AuthMiddleware');
 
 const router = express.Router();
 
@@ -13,10 +13,11 @@ router.post("/verify-code", userController.verifyCode); // Verify Code
 router.post("/reset-password", userController.resetPassword); // Reset Password
 
 // Protected Routes
-router.get("/users", authenticateUser, userController.getUsers); // Get All Users
-router.get("/users/:id", authenticateUser, userController.getUserById); // Get User by ID
-router.get("/users/role/:role", authenticateUser, userController.getUsersByRole); // Get Users by Role
-router.put("/users/:id", authenticateUser, userController.updateUser); // Update User
-router.delete("/users/:id", authenticateUser, userController.deleteUser); // Delete User
+router.get("/users", authenticateUser, authorizeRole(['admin', 'manager']), userController.getUsers);
+router.get("/users/role/:role", authenticateUser, authorizeRole(['admin', 'manager']), userController.getUsersByRole);
+router.get("/users/:id", authenticateUser, userController.getUserById);
+router.put("/users/:id", authenticateUser, userController.updateUser);
+router.put("/users/:id/role", authenticateUser, authorizeRole(['admin', 'manager']), userController.updateUserRole);
+router.delete("/users/:id", authenticateUser, authorizeRole(['admin']), userController.deleteUser);
 
 module.exports = router;

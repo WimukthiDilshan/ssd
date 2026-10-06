@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { authenticateUser } = require('../middleware/AuthMiddleware');
+const { authenticateUser, authorizeRole } = require('../middleware/AuthMiddleware');
 const {
     handleOrderFlow,
    getAllOrders,
@@ -62,6 +62,6 @@ router.get('/production/recent', authenticateUser, getRecentProductionOrders);
 router.delete('/:id', authenticateUser, deleteOrder);
 
 // Route to update order status
-router.put('/:orderId', authenticateUser, updateOrderStatus);
+router.put('/:orderId', authenticateUser, authorizeRole(['admin', 'cashier']), updateOrderStatus);
 
 module.exports = router; 

@@ -16,14 +16,10 @@ const transporter = nodemailer.createTransport({
 // ✅ Create a New User (Auto-Increment `user_id`)
 exports.createUser = async (req, res) => {
     try {
-        const { first_name, last_name, address, phone_number, email, password, role } = req.body;
+        const { first_name, last_name, address, phone_number, email, password } = req.body;
         const db = req.db;
 
-        // Validate role
-        const validRoles = ['customer', 'manager', 'admin', 'cashier'];
-        if (role && !validRoles.includes(role)) {
-            return res.status(400).json({ message: "🚨 Invalid role. Must be one of: customer, manager, admin, cashier" });
-        }
+        // Public registration always creates a customer, regardless of client input.
 
         // Check if email already exists
         db.execute("SELECT * FROM user WHERE email = ?", [email], async (err, existingUser) => {
@@ -47,14 +43,14 @@ exports.createUser = async (req, res) => {
                 // ✅ Insert user
                 db.execute(
                     "INSERT INTO user (first_name, last_name, address, phone_number, email, password, role) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    [first_name, last_name, address, phone_number, email, hashedPassword, role || 'customer'],
+                    [first_name, last_name, address, phone_number, email, hashedPassword, 'customer'],
                     (err, result) => {
                         if (err) return res.status(500).json({ message: "Server Error", error: err });
 
                         res.status(201).json({
                             message: "✅ User created successfully",
                             user_id: result.insertId,
-                            role: role || 'customer'
+                            role: 'customer'
                         });
                     }
                 );
@@ -148,7 +144,7 @@ exports.logout = (req, res) => {
 exports.getUsers = async (req, res) => {
     try {
         const db = req.db;
-        db.execute("SELECT * FROM user", (err, results) => {
+        db.execute("SELECT user_id, first_name, last_name, address, phone_number, email, role FROM user", (err, results) => {
             if (err) return res.status(500).json({ message: "Server Error", error: err });
 
             res.status(200).json(results);
@@ -163,7 +159,13 @@ exports.getUserById = async (req, res) => {
     try {
         const { id } = req.params;
         const db = req.db;
-        db.execute("SELECT * FROM user WHERE user_id = ?", [id], (err, results) => {
+        if (req.user.role === 'customer' && String(req.user.user_id) !== String(id)) {
+            return res.status(403).json({ message: "Forbidden: Cannot access another user's profile" });
+        }
+        if (!['customer', 'admin', 'manager'].includes(req.user.role)) {
+            return res.status(403).json({ message: 'Forbidden: Insufficient permissions' });
+        }
+        db.execute("SELECT user_id, first_name, last_name, address, phone_number, email, role FROM user WHERE user_id = ?", [id], (err, results) => {
             if (err) return res.status(500).json({ message: "Server Error", error: err });
 
             if (results.length === 0) {
@@ -183,9 +185,19 @@ exports.updateUser = async (req, res) => {
         const { id } = req.params;
         const { first_name, last_name, address, phone_number, email } = req.body;
         const db = req.db;
+        if (req.body.role !== undefined) {
+            return res.status(400).json({ message: 'Role changes must use the user-management role endpoint' });
+        }
+
+        if (req.user.role === 'customer' && String(req.user.user_id) !== String(id)) {
+            return res.status(403).json({ message: "Forbidden: Cannot update another user's profile" });
+        }
+        if (!['customer', 'admin', 'manager'].includes(req.user.role)) {
+            return res.status(403).json({ message: 'Forbidden: Insufficient permissions' });
+        }
 
         // ✅ Check if user exists
-        db.execute("SELECT * FROM user WHERE user_id = ?", [id], (err, results) => {
+        db.execute("SELECT user_id FROM user WHERE user_id = ?", [id], (err, results) => {
             if (err) return res.status(500).json({ message: "Server Error", error: err });
 
             if (results.length === 0) {
@@ -266,7 +278,7 @@ exports.getUsersByRole = async (req, res) => {
             return res.status(400).json({ message: "🚨 Invalid role. Must be one of: customer, manager, admin, cashier" });
         }
 
-        db.execute("SELECT * FROM user WHERE role = ?", [role], (err, results) => {
+        db.execute("SELECT user_id, first_name, last_name, address, phone_number, email, role FROM user WHERE role = ?", [role], (err, results) => {
             if (err) return res.status(500).json({ message: "Server Error", error: err });
 
             res.status(200).json(results);
@@ -274,6 +286,21 @@ exports.getUsersByRole = async (req, res) => {
     } catch (error) {
         res.status(500).json({ message: "Server Error", error });
     }
+};
+
+exports.updateUserRole = async (req, res) => {
+    const { id } = req.params;
+    const { role } = req.body;
+    const validRoles = ['customer', 'manager', 'admin', 'cashier'];
+    if (!validRoles.includes(role)) return res.status(400).json({ message: 'Invalid role' });
+    req.db.execute('SELECT user_id FROM user WHERE user_id = ?', [id], (err, rows) => {
+        if (err) return res.status(500).json({ message: 'Server Error', error: err });
+        if (!rows.length) return res.status(404).json({ message: 'User not found' });
+        req.db.execute('UPDATE user SET role = ? WHERE user_id = ?', [role, id], (updateErr) => {
+            if (updateErr) return res.status(500).json({ message: 'Server Error', error: updateErr });
+            res.status(200).json({ message: 'User role updated successfully' });
+        });
+    });
 };
 
 // Forget Password

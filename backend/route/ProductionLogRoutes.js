@@ -1,6 +1,8 @@
 const express = require("express");
 const router = express.Router();
-const { authenticateUser } = require("../middleware/AuthMiddleware");
+const { authenticateUser, authorizeRole } = require("../middleware/AuthMiddleware");
+const readInventory = [authenticateUser, authorizeRole(['admin', 'manager', 'cashier'])];
+const writeInventory = [authenticateUser, authorizeRole(['admin', 'manager'])];
 const {
     createProductionLog,
     getAllProductionLogs,
@@ -11,21 +13,21 @@ const {
 } = require("../controller/ProductionLogController");
 
 // Create new production log (Manager and Admin only)
-router.post("/", authenticateUser, createProductionLog);
+router.post("/", ...writeInventory, createProductionLog);
 
 // Get all production logs (Authenticated users only)
-router.get("/", authenticateUser, getAllProductionLogs);
+router.get("/", ...readInventory, getAllProductionLogs);
 
 // Get production logs by product ID (Authenticated users only)
-router.get("/product/:productId", authenticateUser, getProductionLogsByProduct);
+router.get("/product/:productId", ...readInventory, getProductionLogsByProduct);
 
 // Get production logs by inventory release ID (Authenticated users only)
-router.get("/inventory-release/:inventoryReleaseId", authenticateUser, getProductionLogsByInventoryRelease);
+router.get("/inventory-release/:inventoryReleaseId", ...readInventory, getProductionLogsByInventoryRelease);
 
 // Get production log by ID (Authenticated users only)
-router.get("/:productionId", authenticateUser, getProductionLogById);
+router.get("/:productionId", ...readInventory, getProductionLogById);
 
 // Get current stock for a product (Authenticated users only)
-router.get("/stock/:productId", authenticateUser, getProductStock);
+router.get("/stock/:productId", ...readInventory, getProductStock);
 
 module.exports = router;

@@ -1129,6 +1129,9 @@ const updateOrderStatus = async (req, res) => {
     const { order_status, order_type } = req.body;
     
     try {
+        if (!req.user || !['admin', 'cashier'].includes(req.user.role)) {
+            return res.status(403).json({ success: false, message: 'Access denied.' });
+        }
         console.log(`Updating order ${orderId} with status: ${order_status}, type: ${order_type}`);
         
         // Verify the order exists

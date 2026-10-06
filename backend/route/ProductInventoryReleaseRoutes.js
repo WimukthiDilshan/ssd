@@ -1,18 +1,20 @@
 const express = require('express');
 const router = express.Router();
-const { authenticateUser } = require('../middleware/AuthMiddleware');
+const { authenticateUser, authorizeRole } = require('../middleware/AuthMiddleware');
+const readInventory = [authenticateUser, authorizeRole(['admin', 'manager', 'cashier'])];
+const writeInventory = [authenticateUser, authorizeRole(['admin', 'manager'])];
 const ProductInventoryRelease = require('../controller/ProductInventoryRelease');
 
 // Create a new production inventory release
-router.post('/', authenticateUser, ProductInventoryRelease.create);
+router.post('/', ...writeInventory, ProductInventoryRelease.create);
 
 // Get all production inventory releases
-router.get('/', authenticateUser, ProductInventoryRelease.getAll);
+router.get('/', ...readInventory, ProductInventoryRelease.getAll);
 
 // Get a single production inventory release by ID
-router.get('/:id', authenticateUser, ProductInventoryRelease.getById);
+router.get('/:id', ...readInventory, ProductInventoryRelease.getById);
 
 // Delete a production inventory release and restore inventory
-router.delete('/:id', authenticateUser, ProductInventoryRelease.delete);
+router.delete('/:id', ...writeInventory, ProductInventoryRelease.delete);
 
 module.exports = router; 
