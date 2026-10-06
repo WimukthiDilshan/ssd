@@ -1,25 +1,28 @@
 const express = require('express');
 const { PythonShell } = require('python-shell');
+const path = require('path');
+const { authenticateUser, authorizeRole } = require('../middleware/AuthMiddleware');
 const router = express.Router();
 
-router.post('/predict-sales', (req, res) => {
+const validDate = (value) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+
+router.post('/predict-sales', authenticateUser, authorizeRole(['admin', 'manager']), (req, res) => {
   const { sale_date } = req.body;
-  console.log('Running Python script...');
+  if (!validDate(sale_date)) return res.status(400).json({ error: 'A valid sale_date in YYYY-MM-DD format is required' });
 
   let options = {
     mode: 'text',
     pythonOptions: ['-u'],
-    scriptPath: './ml_models', // path where predict_sales.py is located
+    scriptPath: path.resolve(__dirname, '../ml_models'), // existing configured model path
     args: [sale_date]
   };
 
   PythonShell.run('predict_sales.py', options, function (err, results) {
     if (err) {
-      console.error('Prediction Error:', err);
-      return res.status(500).send('Prediction error');
+      console.error('Prediction Error:', err.message);
+      return res.status(500).json({ error: 'Prediction failed' });
     }
-    console.log('Python Result:', results);  // <-- ADD THIS
-    res.json({ predicted_quantity: results[0] });
+    res.json({ predicted_quantity: results?.[0] });
   });
 });
 

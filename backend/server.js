@@ -3,10 +3,10 @@ const mysql = require('mysql2');
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const cors = require('cors');
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
+const path = require('path');
 
 const cron = require('node-cron');
-const axios = require('axios');
 
 
 
@@ -26,6 +26,15 @@ const productInventoryReleaseRoutes = require("./route/ProductInventoryReleaseRo
 const predictSalesRoute = require('./route/predictSales');
 
 const app = express();
+
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    next();
+});
 
 // Other middleware
 app.use(express.json());
@@ -81,73 +90,49 @@ app.use("/api/production-inventory-releases", productInventoryReleaseRoutes);
 app.use('/api', predictSalesRoute);
 
 
-// ✅ TRAIN MODEL API
-app.get('/train-model', (req, res) => {
-  exec(
-    `python AI_MODEL_REAL_ONE/train_model.py`,
-    (err, stdout, stderr) => {
-      if (err) {
-        return res.status(500).json({ error: stderr || err.message });
-      }
-      console.log(stdout);
-      res.json({ message: '✅ Model trained successfully!' });
+const { authenticateUser, authorizeRole } = require('./middleware/AuthMiddleware');
+const aiAccess = [authenticateUser, authorizeRole(['admin', 'manager'])];
+const aiScript = (filename) => path.resolve(__dirname, 'AI_MODEL_REAL_ONE', filename);
+const pythonExecutable = process.env.PYTHON_EXECUTABLE || (process.platform === 'win32' ? 'python' : 'python3');
+const validDate = (value) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+
+app.get('/train-model', ...aiAccess, (req, res) => {
+  execFile(pythonExecutable, [aiScript('train_model.py')], { timeout: 10 * 60 * 1000 }, (err, stdout, stderr) => {
+    if (err) {
+      console.error('Model training failed:', stderr || err.message);
+      return res.status(500).json({ error: 'Model training failed' });
     }
-  );
+    console.log(stdout);
+    res.json({ message: 'Model trained successfully!' });
+  });
 });
 
-app.get('/predict', (req, res) => {
+app.get('/predict', ...aiAccess, (req, res) => {
   const { date } = req.query;
-  if (!date) return res.status(400).json({ error: "Date is required" });
-
-  const scriptPath = `python AI_MODEL_REAL_ONE/predict.py ${date}`;
-
-  exec(scriptPath, (err, stdout, stderr) => {
+  if (!validDate(date)) return res.status(400).json({ error: 'A valid date in YYYY-MM-DD format is required' });
+  execFile(pythonExecutable, [aiScript('predict.py'), date], { timeout: 60 * 1000 }, (err, stdout, stderr) => {
     if (err) {
-      return res.status(500).json({ error: stderr || err.message });
+      console.error('Sales prediction failed:', stderr || err.message);
+      return res.status(500).json({ error: 'Prediction failed' });
     }
-
     try {
-      const predictions = JSON.parse(stdout);
-      res.json(predictions);
-    } catch (e) {
-      res.status(500).json({ error: "Failed to parse model response" });
+      res.json(JSON.parse(stdout));
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to parse model response' });
     }
   });
 });
 
-// 🧠 Schedule job to run daily at 2:00 AM
-cron.schedule('* * * * *', async () => {  // runs every minute
-  try {
-    console.log("🕑 Running daily model training...");
-
-    const response = await axios.get('http://localhost:3000/train-model');
-
-    console.log("✅ Daily model training response:", response.data);
-  } catch (error) {
-    console.error("❌ Error in daily model training:", error.message);
-  }
-});
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+// Deployment files do not define a timezone; schedule explicitly uses Asia/Colombo.
+cron.schedule('0 2 * * *', () => {
+  execFile(pythonExecutable, [aiScript('train_model.py')], { timeout: 10 * 60 * 1000 }, (err, stdout, stderr) => {
+    if (err) {
+      console.error('Scheduled model training failed:', stderr || err.message);
+      return;
+    }
+    console.log('Scheduled model training completed:', stdout);
+  });
+}, { timezone: 'Asia/Colombo' });
 // Start Express Server
 app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
@@ -161,3 +146,4 @@ process.on("SIGINT", () => {
         process.exit();
     });
 });
+
